@@ -1,0 +1,70 @@
+# Rebuilds Boring Golf's course files from OpenStreetMap and publishes them on GitHub Pages.
+# Runs on the 3rd of every month, and any time from the Actions tab ("Run workflow").
+name: Build course data
+
+on:
+  schedule:
+    - cron: '0 7 3 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space for the US map file
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install osmium
+        run: sudo apt-get update && sudo apt-get install -y osmium-tool
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check the builder
+        run: node test/test.mjs
+
+      - name: Download US map data (Geofabrik)
+        run: curl -fL --retry 5 --retry-delay 30 -o us.osm.pbf https://download.geofabrik.de/north-america/us-latest.osm.pbf
+
+      - name: Keep only golf courses, holes and greens
+        run: |
+          osmium tags-filter us.osm.pbf nwr/leisure=golf_course w/golf=hole w/golf=green -o golf.osm.pbf
+          rm us.osm.pbf
+          ls -lh golf.osm.pbf
+
+      - name: Export as GeoJSON
+        run: osmium export golf.osm.pbf -f geojsonseq -a type,id -o golf.geojsonseq
+
+      - name: Build course files
+        run: |
+          node build.mjs golf.geojsonseq site
+          du -sh site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
