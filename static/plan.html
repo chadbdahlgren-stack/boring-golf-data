@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practice plan · Boring Golf</title>
+<style>
+  :root { --bg:#F4F1EA; --card:#FFFDF8; --ink:#1F2A24; --muted:#6B746D; --line:#E2DCCF; --pine:#2F5D46; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .open { display:block; text-align:center; background:var(--pine); color:#fff; text-decoration:none; font-weight:700; padding:14px; border-radius:12px; margin:20px 0; }
+  ol { list-style:none; padding:0; margin:0; display:grid; gap:12px; }
+  li { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; }
+  .row { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+  .name { font-weight:700; }
+  .balls { font-weight:800; white-space:nowrap; }
+  .cue { white-space:pre-wrap; margin-top:6px; color:var(--ink); font-size:15px; overflow-wrap:anywhere; }
+  .cue a { color:var(--pine); font-weight:700; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Practice plan</h1>
+  <p class="muted" id="summary">Loading…</p>
+  <a class="open" id="open" href="#">Open in Boring Golf</a>
+  <ol id="drills"></ol>
+  <p class="muted">No Boring Golf yet? Ask the person who sent this for a TestFlight invite.</p>
+</main>
+<script>
+  // Shows a shared plan and hands it to the app. Plan data only ever goes into textContent.
+  const param = new URLSearchParams(location.hash.slice(1)).get('plan') || '';
+  let drills = [];
+  try {
+    let raw;
+    try { raw = JSON.parse(param); } catch { raw = JSON.parse(decodeURIComponent(param)); }
+    if (Array.isArray(raw)) drills = raw.filter((d) => d && typeof d.name === 'string').slice(0, 20);
+  } catch {}
+  const summary = document.getElementById('summary');
+  const open = document.getElementById('open');
+  if (!drills.length) {
+    summary.textContent = 'This plan link looks incomplete.';
+    open.style.display = 'none';
+  } else {
+    const balls = drills.reduce((s, d) => s + (Number(d.balls) || 0), 0);
+    summary.textContent = drills.length + ' drills · ' + balls + ' balls';
+    open.href = 'boringgolf://practice?plan=' + encodeURIComponent(JSON.stringify(drills));
+    const list = document.getElementById('drills');
+    for (const d of drills) {
+      const li = document.createElement('li');
+      const row = document.createElement('div'); row.className = 'row';
+      const name = document.createElement('span'); name.className = 'name'; name.textContent = String(d.name);
+      const n = document.createElement('span'); n.className = 'balls'; n.textContent = (Number(d.balls) || 0) + ' balls';
+      row.append(name, n);
+      const cue = document.createElement('div'); cue.className = 'cue';
+      for (const part of String(d.cue || '').split(/(https?:\/\/\S+)/g)) {
+        if (/^https?:\/\//.test(part)) {
+          const a = document.createElement('a'); a.href = part; a.textContent = 'Watch the video'; a.rel = 'noopener'; cue.append(a);
+        } else if (part) cue.append(document.createTextNode(part));
+      }
+      li.append(row, cue);
+      list.append(li);
+    }
+  }
+</script>
+</body>
+</html>

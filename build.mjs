@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 
 const [, , input, outDir] = process.argv;
 if (!input || !outDir) {
@@ -173,5 +174,8 @@ fs.writeFileSync(
   JSON.stringify({ v: 1, generated: new Date().toISOString(), courses: written, holes: holeCount, source: 'OpenStreetMap contributors (ODbL)' }),
 );
 fs.writeFileSync(path.join(outDir, '.nojekyll'), '');
+// Static pages served alongside the data (e.g. plan.html, which opens shared practice plans).
+const staticDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'static');
+if (fs.existsSync(staticDir)) fs.cpSync(staticDir, outDir, { recursive: true });
 console.log(`read ${lines} features: ${courses.size} courses, ${holeLines.length} holes, ${greens.length} greens`);
 console.log(`wrote ${written} course files with ${holeCount} holes to ${outDir}`);
