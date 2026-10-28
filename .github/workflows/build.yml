@@ -18,7 +18,8 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  # A newer push replaces a build that's still running.
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -43,7 +44,9 @@ jobs:
         run: node test/test.mjs
 
       - name: Download US map data (Geofabrik)
-        run: curl -fL --retry 5 --retry-delay 30 -o us.osm.pbf https://download.geofabrik.de/north-america/us-latest.osm.pbf
+        # A stalled download (under 1 MB/s for 2 minutes) is dropped and retried instead of hanging for hours.
+        timeout-minutes: 60
+        run: curl -fL --retry 5 --retry-delay 30 --retry-all-errors --speed-limit 1000000 --speed-time 120 -o us.osm.pbf https://download.geofabrik.de/north-america/us-latest.osm.pbf
 
       - name: Keep only golf courses, holes and greens
         run: |
