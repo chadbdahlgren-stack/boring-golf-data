@@ -1,0 +1,11 @@
+Code (build.mjs, the workflow, the web pages and tests):
+Copyright (c) 2026 Chad Dahlgren. All rights reserved. This code is viewable here
+only because GitHub Pages hosting requires it; viewing it grants no right to copy,
+modify, distribute or reuse it.
+
+Published course files (the data served at
+https://chadbdahlgren-stack.github.io/boring-golf-data/):
+Derived from OpenStreetMap data, (c) OpenStreetMap contributors, and made available
+under the Open Database License (ODbL 1.0): https://opendatacommons.org/licenses/odbl/1-0/
+The ODbL requires this data to stay openly available; that is a condition of using
+OpenStreetMap, not a grant of rights to the code above.
