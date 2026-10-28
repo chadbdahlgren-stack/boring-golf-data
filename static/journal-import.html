@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Import journal · Boring Golf</title>
+<style>
+  :root { --bg:#F4F1EA; --card:#FFFDF8; --ink:#1F2A24; --muted:#6B746D; --line:#E2DCCF; --pine:#2F5D46; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .open { display:block; text-align:center; background:var(--pine); color:#fff; text-decoration:none; font-weight:700; padding:14px; border-radius:12px; margin:20px 0; }
+  ol { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+  li { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; display:flex; justify-content:space-between; gap:12px; }
+  .score { font-weight:800; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Import your journal</h1>
+  <p class="muted" id="summary">Loading…</p>
+  <a class="open" id="open" href="#">Import into Boring Golf</a>
+  <ol id="rounds"></ol>
+  <p class="muted">Your rounds travel only inside this link. Nothing is saved on this website.</p>
+</main>
+<script>
+  // The entries are in the link's #data= part, which browsers never send to the server.
+  const param = new URLSearchParams(location.hash.slice(1)).get('data') || '';
+  let rounds = [];
+  try {
+    const raw = JSON.parse(param);
+    if (Array.isArray(raw)) rounds = raw;
+  } catch {}
+  const summary = document.getElementById('summary');
+  const open = document.getElementById('open');
+  if (!rounds.length) {
+    summary.textContent = 'This import link looks incomplete.';
+    open.style.display = 'none';
+  } else {
+    summary.textContent = rounds.length + ' journal ' + (rounds.length === 1 ? 'entry' : 'entries') + ' ready to import.';
+    open.href = 'boringgolf://journal?import=' + encodeURIComponent(JSON.stringify(rounds));
+    const list = document.getElementById('rounds');
+    for (const r of rounds) {
+      const li = document.createElement('li');
+      const left = document.createElement('span');
+      left.textContent = String(r.date || '') + ' · ' + String(r.location || r.course || 'Round');
+      const right = document.createElement('span');
+      right.className = 'score';
+      right.textContent = r.score ? String(r.score) : '';
+      li.append(left, right);
+      list.append(li);
+    }
+  }
+</script>
+</body>
+</html>
