@@ -50,7 +50,7 @@ jobs:
 
       - name: Keep only golf courses, holes and greens
         run: |
-          osmium tags-filter us.osm.pbf nwr/leisure=golf_course w/golf=hole w/golf=green w/golf=tee -o golf.osm.pbf
+          osmium tags-filter us.osm.pbf nwr/leisure=golf_course w/golf=hole,green,tee,fairway,rough,bunker,water_hazard,lateral_water_hazard,cartpath,path w/natural=water -o golf.osm.pbf
           rm us.osm.pbf
           ls -lh golf.osm.pbf
 
