@@ -3,7 +3,7 @@
 //   node build.mjs <golf.geojsonseq> <output folder>
 //
 // Input is `osmium export -f geojsonseq -a type,id` of a file that holds only
-// leisure=golf_course areas and golf=hole / golf=green ways (see the workflow).
+// leisure=golf_course areas and golf=hole / golf=green / golf=tee ways (see the workflow).
 // Output: one small JSON file per course that has mapped holes, at
 //   <out>/c/w<way id>.json  or  <out>/c/r<relation id>.json
 // plus <out>/index.json with counts. Map data © OpenStreetMap contributors, ODbL.
@@ -76,6 +76,7 @@ const courses = new Map(); // key -> { key, name, rings, area, holes: [], greens
 const grid = new Map(); // "x:y" -> course keys
 const holeLines = [];
 const greens = [];
+const tees = [];
 
 const cell = (lat, lon) => `${Math.floor(lat / GRID)}:${Math.floor(lon / GRID)}`;
 
@@ -123,11 +124,19 @@ for await (let line of rl) {
   } else if (p.golf === 'green') {
     const [ring] = outerRings(f.geometry);
     if (ring) greens.push({ outline: ring, center: centroid(ring) });
+  } else if (p.golf === 'tee') {
+    // Tee boxes: just the middle of each. The app works out which hole and tees each one is.
+    const [ring] = outerRings(f.geometry);
+    if (ring) tees.push(centroid(ring));
   }
 }
 
 for (const h of holeLines) courseAt(h.path[Math.floor(h.path.length / 2)])?.holes.push(h);
 for (const g of greens) courseAt(g.center)?.greens.push(g);
+for (const t of tees) {
+  const c = courseAt(t);
+  if (c) (c.tees ??= []).push(t);
+}
 
 fs.mkdirSync(path.join(outDir, 'c'), { recursive: true });
 let written = 0;
@@ -164,7 +173,10 @@ for (const c of courses.values()) {
   }
   if (!byNumber.size) continue;
   const holes = [...byNumber.values()].sort((a, b) => a.n - b.n);
-  fs.writeFileSync(path.join(outDir, 'c', `${c.key}.json`), JSON.stringify({ v: 1, key: c.key, name: c.name, holes }));
+  fs.writeFileSync(
+    path.join(outDir, 'c', `${c.key}.json`),
+    JSON.stringify({ v: 1, key: c.key, name: c.name, holes, ...(c.tees ? { tees: c.tees.map(round) } : {}) }),
+  );
   written++;
   holeCount += holes.length;
 }
@@ -177,5 +189,5 @@ fs.writeFileSync(path.join(outDir, '.nojekyll'), '');
 // Static pages served alongside the data (e.g. plan.html, which opens shared practice plans).
 const staticDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'static');
 if (fs.existsSync(staticDir)) fs.cpSync(staticDir, outDir, { recursive: true });
-console.log(`read ${lines} features: ${courses.size} courses, ${holeLines.length} holes, ${greens.length} greens`);
+console.log(`read ${lines} features: ${courses.size} courses, ${holeLines.length} holes, ${greens.length} greens, ${tees.length} tee boxes`);
 console.log(`wrote ${written} course files with ${holeCount} holes to ${outDir}`);
