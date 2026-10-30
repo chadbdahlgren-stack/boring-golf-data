@@ -77,16 +77,6 @@ const grid = new Map(); // "x:y" -> course keys
 const holeLines = [];
 const greens = [];
 const tees = [];
-const areas = [];
-
-/** Matches areaKind in the app (src/lib/osm.ts). */
-function areaKind(p) {
-  const g = p.golf;
-  if (['fairway', 'rough', 'bunker', 'green', 'tee'].includes(g)) return g;
-  if (g === 'water_hazard' || g === 'lateral_water_hazard' || p.natural === 'water') return 'water';
-  if (g === 'cartpath' || g === 'path') return 'cartpath';
-  return undefined;
-}
 
 const cell = (lat, lon) => `${Math.floor(lat / GRID)}:${Math.floor(lon / GRID)}`;
 
@@ -134,18 +124,10 @@ for await (let line of rl) {
   } else if (p.golf === 'green') {
     const [ring] = outerRings(f.geometry);
     if (ring) greens.push({ outline: ring, center: centroid(ring) });
-  }
-  if (p.golf === 'tee') {
+  } else if (p.golf === 'tee') {
     // Tee boxes: just the middle of each. The app works out which hole and tees each one is.
     const [ring] = outerRings(f.geometry);
     if (ring) tees.push(centroid(ring));
-  }
-  // Course features the app paints in color (greens and tees too, as shapes).
-  const kind = areaKind(p);
-  if (kind) {
-    const pts =
-      kind === 'cartpath' && f.geometry?.type === 'LineString' ? f.geometry.coordinates.map(latLon) : outerRings(f.geometry)[0];
-    if (pts && pts.length >= 2) areas.push({ k: kind, p: pts });
   }
 }
 
@@ -154,10 +136,6 @@ for (const g of greens) courseAt(g.center)?.greens.push(g);
 for (const t of tees) {
   const c = courseAt(t);
   if (c) (c.tees ??= []).push(t);
-}
-for (const a of areas) {
-  const c = courseAt(a.p[Math.floor(a.p.length / 2)]);
-  if (c) (c.areas ??= []).push({ k: a.k, p: a.p.map(round) });
 }
 
 fs.mkdirSync(path.join(outDir, 'c'), { recursive: true });
@@ -197,14 +175,7 @@ for (const c of courses.values()) {
   const holes = [...byNumber.values()].sort((a, b) => a.n - b.n);
   fs.writeFileSync(
     path.join(outDir, 'c', `${c.key}.json`),
-    JSON.stringify({
-      v: 1,
-      key: c.key,
-      name: c.name,
-      holes,
-      ...(c.tees ? { tees: c.tees.map(round) } : {}),
-      ...(c.areas ? { areas: c.areas } : {}),
-    }),
+    JSON.stringify({ v: 1, key: c.key, name: c.name, holes, ...(c.tees ? { tees: c.tees.map(round) } : {}) }),
   );
   written++;
   holeCount += holes.length;
