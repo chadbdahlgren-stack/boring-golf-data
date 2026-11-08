@@ -31,4 +31,13 @@ for (const f of fs.readdirSync(path.join(out, 'c'))) {
   const c = JSON.parse(fs.readFileSync(path.join(out, 'c', f), 'utf8'));
   assert.ok(c.holes.length <= 36);
 }
+// Courses without a proper map are listed; fully mapped ones (No. 4) aren't.
+const gaps = JSON.parse(fs.readFileSync(path.join(out, 'maps-missing.json'), 'utf8'));
+assert.equal(gaps.complete + gaps.none + gaps.partial + gaps.unnamed, gaps.courses);
+assert.ok(!gaps.list.some((c) => c.key === 'w845405482'), 'No. 4 is fully mapped');
+const no9 = gaps.list.find((c) => c.key === 'r6388053');
+assert.equal(no9?.holes, 0, 'Course No. 9 has no holes in the fixture');
+const no7 = gaps.list.find((c) => c.key === 'w286194275');
+assert.ok(no7 && no7.holes > 0 && no7.missing.length > 0, 'a partly mapped course lists its missing holes');
+assert.ok(fs.readFileSync(path.join(out, 'maps-missing.csv'), 'utf8').startsWith('State,Course,'));
 console.log('course-data checks passed');

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Courses without maps · Boring Golf</title>
+<style>
+  :root { --bg:#F4F1EA; --card:#FFFDF8; --ink:#1F2A24; --muted:#6B746D; --line:#E2DCCF; --pine:#2F5D46; --red:#A8432E; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .stats { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:8px 12px; }
+  .stat b { display:block; font-size:20px; }
+  .filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  select, input { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--ink); }
+  input { flex:1; min-width:160px; }
+  ul { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+  li { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 14px; }
+  .row { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+  .name { font-weight:700; overflow-wrap:anywhere; }
+  .tag { font-size:13px; font-weight:700; white-space:nowrap; color:var(--red); }
+  .tag.part { color:#9C5F2E; }
+  a { color:var(--pine); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Courses without a proper map</h1>
+  <p class="muted" id="when">Loading…</p>
+  <div class="stats" id="stats"></div>
+  <div class="filters">
+    <select id="state" aria-label="State"><option value="">All states</option></select>
+    <select id="kind" aria-label="Kind">
+      <option value="">No map or partial</option>
+      <option value="none">No map at all</option>
+      <option value="partial">Partial map</option>
+    </select>
+    <input id="q" type="search" placeholder="Search course name" aria-label="Search course name">
+  </div>
+  <p class="muted" id="count"></p>
+  <ul id="list"></ul>
+  <p class="muted">Hole maps come from OpenStreetMap (© OpenStreetMap contributors, ODbL). Anyone can add a course's holes there;
+    Boring Golf picks them up at its monthly rebuild. <a href="maps-missing.csv">Download as CSV</a>.</p>
+</main>
+<script>
+  // Lists every course without a proper map. Course names only ever go into textContent.
+  const $ = (id) => document.getElementById(id);
+  let all = [];
+  function render() {
+    const st = $('state').value, kind = $('kind').value, q = $('q').value.trim().toLowerCase();
+    const shown = all.filter((c) =>
+      (!st || c.state === st) &&
+      (!kind || (kind === 'none' ? !c.holes : c.holes > 0)) &&
+      (!q || c.name.toLowerCase().includes(q)));
+    $('count').textContent = `${shown.length.toLocaleString()} courses`;
+    const ul = $('list');
+    ul.replaceChildren();
+    for (const c of shown.slice(0, 500)) {
+      const li = document.createElement('li');
+      const row = document.createElement('div');
+      row.className = 'row';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = c.name;
+      const tag = document.createElement('span');
+      tag.className = c.holes ? 'tag part' : 'tag';
+      tag.textContent = c.holes ? `${c.holes} holes mapped` : 'No map';
+      row.append(name, tag);
+      const sub = document.createElement('div');
+      sub.className = 'muted';
+      const link = document.createElement('a');
+      link.href = `https://www.openstreetmap.org/${c.key[0] === 'w' ? 'way' : 'relation'}/${c.key.slice(1)}`;
+      link.textContent = 'OpenStreetMap';
+      link.target = '_blank';
+      link.rel = 'noopener';
+      sub.append(`${c.state || 'Unknown state'}${c.missing?.length ? ` · missing holes ${c.missing.join(', ')}` : ''} · `, link);
+      li.append(row, sub);
+      ul.append(li);
+    }
+    if (shown.length > 500) {
+      const li = document.createElement('li');
+      li.className = 'muted';
+      li.textContent = `Showing the first 500. Pick a state or search to narrow it down.`;
+      ul.append(li);
+    }
+  }
+  fetch('maps-missing.json').then((r) => r.json()).then((d) => {
+    all = d.list;
+    $('when').textContent = `From OpenStreetMap, ${new Date(d.generated).toLocaleDateString()}. US golf courses only.`;
+    for (const [label, n] of [['US courses', d.courses], ['Fully mapped', d.complete], ['No map', d.none], ['Partial map', d.partial]]) {
+      const s = document.createElement('div');
+      s.className = 'stat';
+      const b = document.createElement('b');
+      b.textContent = n.toLocaleString();
+      s.append(b, label);
+      $('stats').append(s);
+    }
+    for (const st of [...new Set(all.map((c) => c.state).filter(Boolean))].sort()) {
+      const o = document.createElement('option');
+      o.value = o.textContent = st;
+      $('state').append(o);
+    }
+    render();
+  }).catch(() => { $('when').textContent = 'The list isn’t built yet. It appears after the next course-data build.'; });
+  for (const id of ['state', 'kind', 'q']) $(id).addEventListener('input', render);
+</script>
+</body>
+</html>

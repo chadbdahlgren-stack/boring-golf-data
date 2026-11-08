@@ -3,10 +3,12 @@
 //   node build.mjs <golf.geojsonseq> <output folder>
 //
 // Input is `osmium export -f geojsonseq -a type,id` of a file that holds only
-// leisure=golf_course areas and golf=hole / golf=green / golf=tee ways (see the workflow).
+// leisure=golf_course areas, golf=hole / golf=green / golf=tee ways and state outlines
+// (admin_level=4 boundaries; see the workflow).
 // Output: one small JSON file per course that has mapped holes, at
 //   <out>/c/w<way id>.json  or  <out>/c/r<relation id>.json
-// plus <out>/index.json with counts. Map data © OpenStreetMap contributors, ODbL.
+// plus <out>/index.json with counts, and maps-missing.json / .csv: every course without a
+// proper map. Map data © OpenStreetMap contributors, ODbL.
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -72,6 +74,50 @@ function outerRings(geom) {
   return [];
 }
 
+/** [minLat, minLon, maxLat, maxLon] around some rings. */
+function bbox(rings) {
+  const b = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const r of rings) {
+    for (const [la, lo] of r) {
+      b[0] = Math.min(b[0], la);
+      b[1] = Math.min(b[1], lo);
+      b[2] = Math.max(b[2], la);
+      b[3] = Math.max(b[3], lo);
+    }
+  }
+  return b;
+}
+
+/** Keeps at most ~4000 points of a ring: plenty to tell which state a course is in. */
+function thin(ring) {
+  const step = Math.ceil(ring.length / 4000);
+  return step <= 1 ? ring : ring.filter((_, i) => i % step === 0);
+}
+
+const states = []; // { name, rings, box }
+
+/** The state a point is in, from the state outlines in the input. */
+function stateAt(p) {
+  for (const s of states) {
+    const [a, b, c, d] = s.box;
+    if (p[0] < a || p[0] > c || p[1] < b || p[1] > d) continue;
+    if (s.rings.some((r) => inside(p, r))) return s.name;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a course's holes make a proper map: all of 1–18, or all of 1–9 with nothing past 9.
+ * Otherwise the hole numbers missing from the 9 or 18 it looks like.
+ */
+function mapGaps(numbers) {
+  const has = new Set(numbers);
+  const want = numbers.some((n) => n > 9) ? 18 : 9;
+  const missing = [];
+  for (let n = 1; n <= want; n++) if (!has.has(n)) missing.push(n);
+  return missing;
+}
+
 const courses = new Map(); // key -> { key, name, rings, area, holes: [], greens: [] }
 const grid = new Map(); // "x:y" -> course keys
 const holeLines = [];
@@ -112,11 +158,15 @@ for await (let line of rl) {
   const p = f.properties ?? {};
   const type = p['@type'];
   const id = p['@id'];
-  if (p.leisure === 'golf_course' && (type === 'way' || type === 'relation')) {
+  if (p.boundary === 'administrative' && p.admin_level === '4' && p.name) {
+    // A state's outline, to say which state each unmapped course is in.
+    const rings = outerRings(f.geometry).map(thin);
+    if (rings.length) states.push({ name: p.name, rings, box: bbox(rings) });
+  } else if (p.leisure === 'golf_course' && (type === 'way' || type === 'relation')) {
     const rings = outerRings(f.geometry);
     if (!rings.length) continue;
     const key = `${type === 'way' ? 'w' : 'r'}${id}`;
-    const c = { key, name: p.name ?? '', rings, area: rings.reduce((s, r) => s + ringArea(r), 0), holes: [], greens: [] };
+    const c = { key, name: p.name ?? '', state: p['addr:state'], rings, area: rings.reduce((s, r) => s + ringArea(r), 0), holes: [], greens: [] };
     courses.set(key, c);
     indexCourse(c);
   } else if (p.golf === 'hole' && f.geometry?.type === 'LineString') {
@@ -171,6 +221,7 @@ for (const c of courses.values()) {
       ...(outline ? { outline: outline.map(round) } : {}),
     });
   }
+  c.numbers = [...byNumber.keys()];
   if (!byNumber.size) continue;
   const holes = [...byNumber.values()].sort((a, b) => a.n - b.n);
   fs.writeFileSync(
@@ -185,9 +236,66 @@ fs.writeFileSync(
   path.join(outDir, 'index.json'),
   JSON.stringify({ v: 1, generated: new Date().toISOString(), courses: written, holes: holeCount, source: 'OpenStreetMap contributors (ODbL)' }),
 );
+// Every course without a proper map (no holes, or gaps in its 9 or 18), with its state, so they
+// can be listed and fixed. Courses without a name are counted but can't be searched in the app.
+const missing = [];
+let complete = 0;
+for (const c of courses.values()) {
+  const numbers = c.numbers ?? [];
+  const gaps = numbers.length ? mapGaps(numbers) : [];
+  if (numbers.length && !gaps.length) {
+    complete++;
+    continue;
+  }
+  const biggest = c.rings.reduce((a, r) => (ringArea(r) > ringArea(a) ? r : a));
+  const at = round(centroid(biggest));
+  missing.push({
+    key: c.key,
+    name: c.name,
+    state: c.state && c.state.length > 2 ? c.state : (stateAt(at) ?? c.state ?? ''),
+    at,
+    holes: numbers.length,
+    ...(numbers.length ? { missing: gaps } : {}),
+  });
+}
+missing.sort((a, b) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name));
+const named = missing.filter((m) => m.name);
+fs.writeFileSync(
+  path.join(outDir, 'maps-missing.json'),
+  JSON.stringify({
+    v: 1,
+    generated: new Date().toISOString(),
+    courses: courses.size,
+    complete,
+    none: named.filter((m) => !m.holes).length,
+    partial: named.filter((m) => m.holes).length,
+    unnamed: missing.length - named.length,
+    list: named,
+  }),
+);
+const csv = (s) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+fs.writeFileSync(
+  path.join(outDir, 'maps-missing.csv'),
+  [
+    'State,Course,Holes mapped,Missing holes,Latitude,Longitude,OpenStreetMap',
+    ...named.map((m) =>
+      [
+        csv(m.state),
+        csv(m.name),
+        m.holes,
+        csv((m.missing ?? []).join(' ')),
+        m.at[0],
+        m.at[1],
+        `https://www.openstreetmap.org/${m.key[0] === 'w' ? 'way' : 'relation'}/${m.key.slice(1)}`,
+      ].join(','),
+    ),
+  ].join('\n'),
+);
+
 fs.writeFileSync(path.join(outDir, '.nojekyll'), '');
 // Static pages served alongside the data (e.g. plan.html, which opens shared practice plans).
 const staticDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'static');
 if (fs.existsSync(staticDir)) fs.cpSync(staticDir, outDir, { recursive: true });
 console.log(`read ${lines} features: ${courses.size} courses, ${holeLines.length} holes, ${greens.length} greens, ${tees.length} tee boxes`);
 console.log(`wrote ${written} course files with ${holeCount} holes to ${outDir}`);
+console.log(`${complete} courses fully mapped; ${named.length} named courses without a proper map (${states.length} state outlines)`);
