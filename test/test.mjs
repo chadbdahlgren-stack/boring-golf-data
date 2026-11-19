@@ -19,8 +19,8 @@ assert.equal(no4.holes.length, 18);
 assert.deepEqual(no4.holes.map((h) => h.n), Array.from({ length: 18 }, (_, i) => i + 1));
 for (const h of no4.holes) {
   assert.ok(h.path.length >= 2 && h.green.length === 2);
-  // 0 means OpenStreetMap has no par for the hole; the app fills it in from the scorecard.
-  assert.ok(h.par === 0 || (h.par >= 3 && h.par <= 6), `hole ${h.n} par ${h.par}`);
+  // Holes with no par in OpenStreetMap get one from their length (a scorecard still wins in the app).
+  assert.ok(h.par >= 3 && h.par <= 6, `hole ${h.n} par ${h.par}`);
 }
 // As of the fixture, OpenStreetMap has pars for 11 of No. 4's holes.
 assert.ok(no4.holes.filter((h) => h.par).length >= 10, 'pars that are mapped come through');
@@ -29,7 +29,7 @@ assert.ok(no4.holes.filter((h) => h.outline).length >= 16, 'most holes snap to a
 // No course's holes should be duplicated into a neighbour's file.
 for (const f of fs.readdirSync(path.join(out, 'c'))) {
   const c = JSON.parse(fs.readFileSync(path.join(out, 'c', f), 'utf8'));
-  assert.ok(c.holes.length <= 36);
+  assert.ok((c.holes ?? []).length <= 36);
 }
 // Courses without a proper map are listed; fully mapped ones (No. 4) aren't.
 const gaps = JSON.parse(fs.readFileSync(path.join(out, 'maps-missing.json'), 'utf8'));
@@ -40,4 +40,15 @@ assert.equal(no9?.holes, 0, 'Course No. 9 has no holes in the fixture');
 const no7 = gaps.list.find((c) => c.key === 'w286194275');
 assert.ok(no7 && no7.holes > 0 && no7.missing.length > 0, 'a partly mapped course lists its missing holes');
 assert.ok(fs.readFileSync(path.join(out, 'maps-missing.csv'), 'utf8').startsWith('State,Course,'));
+// The course check: No. 4 passes (its missing pars filled in), partly mapped courses are
+// published as not available, and the report lists both.
+const check = JSON.parse(fs.readFileSync(path.join(out, 'course-check.json'), 'utf8'));
+assert.equal(check.checked, check.passed + check.fixed + check.unavailable);
+const no4Fixes = check.fixedCourses.find((c) => c.key === 'w845405482');
+assert.ok(no4Fixes?.fixes.some((f) => /hole 6: no par → par 3/.test(f)), 'No. 4 hole 6 gets par 3 from its length');
+assert.ok(!no4Fixes.fixes.some((f) => /turned around/.test(f)), 'no No. 4 hole is turned around');
+const no7File = JSON.parse(fs.readFileSync(path.join(out, 'c', 'w286194275.json'), 'utf8'));
+assert.equal(no7File.unavailable, true, 'a partly mapped course is not available');
+assert.match(no7File.problems[0], /No map for holes 8, 15/);
+assert.ok(fs.readFileSync(path.join(out, 'course-check.csv'), 'utf8').startsWith('Result,Course,What,OpenStreetMap'));
 console.log('course-data checks passed');

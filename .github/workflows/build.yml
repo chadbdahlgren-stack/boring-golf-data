@@ -1,15 +1,17 @@
 # Rebuilds Boring Golf's course files from OpenStreetMap and publishes them on GitHub Pages.
-# Runs on the 3rd of every month, and any time from the Actions tab ("Run workflow").
+# Runs every Monday, and any time from the Actions tab ("Run workflow"). Each run also checks
+# every course with the app's own check (appcheck/), fixes what it can, and publishes the
+# courses it can't fix as not available; course-check.json / .csv say what it did.
 name: Build course data
 
 on:
   schedule:
-    - cron: '0 7 3 * *'
+    - cron: '0 7 * * 1'
   workflow_dispatch:
   # Rebuild and republish when the builder or the static pages change.
   push:
     branches: [main]
-    paths: ['build.mjs', 'static/**', '.github/workflows/build.yml']
+    paths: ['build.mjs', 'appcheck/**', 'static/**', '.github/workflows/build.yml']
 
 permissions:
   contents: read

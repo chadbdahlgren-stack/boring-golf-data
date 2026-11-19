@@ -11,6 +11,7 @@
 // proper map. Map data © OpenStreetMap contributors, ODbL.
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
@@ -118,6 +119,69 @@ function mapGaps(numbers) {
   return missing;
 }
 
+// ---- Course check: fixes, then the app's own check (appcheck/, copied from the app) ----
+
+const require = createRequire(import.meta.url);
+const { checkCourse } = require('./appcheck/courseCheck.js');
+const { parseCourseFile } = require('./appcheck/courseData.js');
+
+// The par the app assumes for a hole with none (as the app's course loading does).
+const DEFAULT_PARS = [4, 4, 3, 4, 5, 4, 3, 4, 5, 4, 4, 3, 4, 5, 4, 3, 4, 5];
+
+const pathYards = (pts) => pts.slice(1).reduce((s, p, i) => s + meters(pts[i], p), 0) * 1.0936133;
+
+/** The par a hole's length says it is (from its longest tees). */
+const parForYards = (yd) => (yd <= 250 ? 3 : yd <= 490 ? 4 : yd <= 650 ? 5 : 6);
+
+/** Whether a mapped par is clearly wrong for the hole's length. */
+function parMisfits(par, yd) {
+  if (par === 3) return yd > 290;
+  if (par === 4) return yd < 190 || yd > 560;
+  if (par === 5) return yd < 380;
+  if (par === 6) return yd < 560;
+  return true;
+}
+
+/** The nearest mapped green to a point, within 70 m. */
+function nearestGreen(greens, p) {
+  let best;
+  let bestD = 70;
+  for (const g of greens) {
+    const d = meters(p, g.center);
+    if (d < bestD) {
+      bestD = d;
+      best = g;
+    }
+  }
+  return best && { green: best, d: bestD };
+}
+
+/**
+ * A spot inside a green's outline for the green's middle: the outline's centre if it's inside
+ * (it isn't, for a kidney-shaped green), else where the hole's line ends, else a point
+ * nudged in from the edge.
+ */
+function insideSpot(outline, center, end) {
+  if (inside(center, outline)) return center;
+  if (inside(end, outline)) return end;
+  for (const p of outline) {
+    const q = [p[0] + (center[0] - p[0]) * 0.25, p[1] + (center[1] - p[1]) * 0.25];
+    if (inside(q, outline)) return q;
+  }
+  return undefined;
+}
+
+/** The app's check on a course file, building the course the way the app does. */
+function appCheck(file) {
+  const mapped = parseCourseFile(file);
+  const count = mapped.length >= 10 || mapped.some((h) => h.number > 9) ? 18 : 9;
+  const holes = Array.from({ length: count }, (_, i) => {
+    const m = mapped.find((h) => h.number === i + 1);
+    return { number: i + 1, par: m?.par || DEFAULT_PARS[i], yards: m?.yards, geo: m?.geo };
+  });
+  return checkCourse(holes);
+}
+
 const courses = new Map(); // key -> { key, name, rings, area, holes: [], greens: [] }
 const grid = new Map(); // "x:y" -> course keys
 const holeLines = [];
@@ -181,6 +245,21 @@ for await (let line of rl) {
   }
 }
 
+// Every green by grid cell, to find the greens near a point whatever course they're filed under.
+const greenGrid = new Map();
+for (const g of greens) {
+  const k = cell(g.center[0], g.center[1]);
+  if (!greenGrid.has(k)) greenGrid.set(k, []);
+  greenGrid.get(k).push(g);
+}
+function greensNear(p) {
+  const y = Math.floor(p[0] / GRID);
+  const x = Math.floor(p[1] / GRID);
+  const out = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) out.push(...(greenGrid.get(`${y + dy}:${x + dx}`) ?? []));
+  return out;
+}
+
 for (const h of holeLines) courseAt(h.path[Math.floor(h.path.length / 2)])?.holes.push(h);
 for (const g of greens) courseAt(g.center)?.greens.push(g);
 for (const t of tees) {
@@ -191,32 +270,61 @@ for (const t of tees) {
 fs.mkdirSync(path.join(outDir, 'c'), { recursive: true });
 let written = 0;
 let holeCount = 0;
+const report = { passed: 0, fixed: [], unavailable: [] };
 for (const c of courses.values()) {
   const byNumber = new Map();
+  const fixes = [];
   for (const h of c.holes) {
     const n = parseInt(h.tags.ref ?? '', 10);
     if (!n || n < 1 || n > 36 || byNumber.has(n)) continue;
-    const end = h.path[h.path.length - 1];
+    // Fix: a hole drawn from the green back to the tee (its line starts at a green and ends
+    // away from one) is turned around.
+    // Only when the line starts right on a green and no green at all (this course's or a
+    // neighbour's) is near its end: a tee often sits just past the last hole's green.
+    let line = h.path;
+    const atStart = nearestGreen(greensNear(line[0]), line[0]);
+    const atEnd = nearestGreen(greensNear(line[line.length - 1]), line[line.length - 1]);
+    if (line.length >= 2 && atStart && atStart.d <= 25 && !atEnd) {
+      line = [...line].reverse();
+      fixes.push(`hole ${n}: line turned around (it ran green to tee)`);
+    }
+    const end = line[line.length - 1];
     let green = end;
     let outline;
-    let bestD = 70; // meters: snap the hole's end to the nearest mapped green
-    for (const g of c.greens) {
-      const d = meters(end, g.center);
-      if (d < bestD) {
-        bestD = d;
-        green = g.center;
-        outline = g.outline;
+    // Snap the hole's end to the nearest mapped green (filed under this course or a neighbour).
+    const near = nearestGreen(greensNear(end), end);
+    if (near) {
+      green = near.green.center;
+      outline = near.green.outline;
+      // Fix: the green's middle has to be on the green.
+      if (!inside(green, outline)) {
+        const spot = insideSpot(outline, green, end);
+        if (spot) {
+          green = spot;
+          fixes.push(`hole ${n}: green's middle moved onto the green`);
+        } else {
+          outline = undefined;
+          fixes.push(`hole ${n}: green outline dropped (its middle wasn't on it)`);
+        }
       }
     }
-    const par = parseInt(h.tags.par ?? '', 10);
+    let par = parseInt(h.tags.par ?? '', 10);
+    // Fix: no par, or one that can't be right for the hole's length, comes from the length.
+    // (A scorecard's par still wins in the app.)
+    const yd = pathYards([...line.slice(0, -1), green]);
+    if (!(par >= 3 && par <= 6) || parMisfits(par, yd)) {
+      const was = par >= 3 && par <= 6 ? `par ${par}` : 'no par';
+      par = parForYards(yd);
+      fixes.push(`hole ${n}: ${was} → par ${par} (${Math.round(yd)} yds)`);
+    }
     const hcp = parseInt(h.tags.handicap ?? '', 10);
     const dist = parseFloat(h.tags.dist ?? '');
     byNumber.set(n, {
       n,
-      par: par >= 3 && par <= 6 ? par : 0,
+      par,
       ...(hcp > 0 ? { hcp } : {}),
       ...(dist > 0 ? { yd: Math.round(dist * 1.0936133) } : {}),
-      path: h.path.map(round),
+      path: line.map(round),
       green: round(green),
       ...(outline ? { outline: outline.map(round) } : {}),
     });
@@ -224,13 +332,56 @@ for (const c of courses.values()) {
   c.numbers = [...byNumber.keys()];
   if (!byNumber.size) continue;
   const holes = [...byNumber.values()].sort((a, b) => a.n - b.n);
-  fs.writeFileSync(
-    path.join(outDir, 'c', `${c.key}.json`),
-    JSON.stringify({ v: 1, key: c.key, name: c.name, holes, ...(c.tees ? { tees: c.tees.map(round) } : {}) }),
-  );
-  written++;
-  holeCount += holes.length;
+  const file = { v: 1, key: c.key, name: c.name, holes, ...(c.tees ? { tees: c.tees.map(round) } : {}) };
+  // The app's check, on the fixed course. One that still fails is published as not available,
+  // so the app says sorry instead of starting a round on maps that don't work.
+  const check = appCheck(file);
+  if (check.ok) {
+    fs.writeFileSync(path.join(outDir, 'c', `${c.key}.json`), JSON.stringify(file));
+    if (fixes.length) report.fixed.push({ key: c.key, name: c.name, fixes });
+    else report.passed++;
+    written++;
+    holeCount += holes.length;
+  } else {
+    fs.writeFileSync(
+      path.join(outDir, 'c', `${c.key}.json`),
+      JSON.stringify({ v: 1, key: c.key, name: c.name, unavailable: true, problems: check.problems }),
+    );
+    report.unavailable.push({ key: c.key, name: c.name, problems: check.problems, ...(fixes.length ? { fixes } : {}) });
+  }
 }
+
+// What the check found, for a look each week: which courses were fixed and how, and which
+// are not available and why.
+const byName = (a, b) => a.name.localeCompare(b.name);
+report.fixed.sort(byName);
+report.unavailable.sort(byName);
+fs.writeFileSync(
+  path.join(outDir, 'course-check.json'),
+  JSON.stringify({
+    v: 1,
+    generated: new Date().toISOString(),
+    checked: report.passed + report.fixed.length + report.unavailable.length,
+    passed: report.passed,
+    fixed: report.fixed.length,
+    unavailable: report.unavailable.length,
+    fixedCourses: report.fixed,
+    unavailableCourses: report.unavailable,
+  }),
+);
+const csvCell = (s) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+fs.writeFileSync(
+  path.join(outDir, 'course-check.csv'),
+  [
+    'Result,Course,What,OpenStreetMap',
+    ...[
+      ...report.unavailable.map((x) => ['Not available', x.name, x.problems.join('; '), x.key]),
+      ...report.fixed.map((x) => ['Fixed', x.name, x.fixes.join('; '), x.key]),
+    ].map(([r, n, w, k]) =>
+      [r, csvCell(n), csvCell(w), `https://www.openstreetmap.org/${k[0] === 'w' ? 'way' : 'relation'}/${k.slice(1)}`].join(','),
+    ),
+  ].join('\n'),
+);
 
 fs.writeFileSync(
   path.join(outDir, 'index.json'),
@@ -297,5 +448,6 @@ fs.writeFileSync(path.join(outDir, '.nojekyll'), '');
 const staticDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'static');
 if (fs.existsSync(staticDir)) fs.cpSync(staticDir, outDir, { recursive: true });
 console.log(`read ${lines} features: ${courses.size} courses, ${holeLines.length} holes, ${greens.length} greens, ${tees.length} tee boxes`);
+console.log(`course check: ${report.passed} passed, ${report.fixed.length} fixed, ${report.unavailable.length} not available (see course-check.csv)`);
 console.log(`wrote ${written} course files with ${holeCount} holes to ${outDir}`);
 console.log(`${complete} courses fully mapped; ${named.length} named courses without a proper map (${states.length} state outlines)`);
