@@ -19,8 +19,8 @@ const pattern_1 = require("./pattern");
 const strokesGained_1 = require("./strokesGained");
 exports.COURSE_NOT_AVAILABLE = 'Sorry, this course is not yet available.';
 /** Shortest and longest believable holes, tee to green along the hole's line. */
-const MIN_HOLE_YARDS = 25; // chip-and-putt courses have 30-yard holes
-const MAX_HOLE_YARDS = 800;
+const MIN_HOLE_YARDS = 20; // pitch-and-putt courses have 20-something-yard holes
+const MAX_HOLE_YARDS = 1000; // a few real par 6s run past 800
 /** Farthest the first putt's spot can be from the green's middle (a big green, a long putt). */
 const GREEN_AT_MAX_YARDS = 25;
 const finite = (p) => !!p && Number.isFinite(p.latitude) && Number.isFinite(p.longitude);

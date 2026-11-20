@@ -234,7 +234,11 @@ for await (let line of rl) {
     courses.set(key, c);
     indexCourse(c);
   } else if (p.golf === 'hole' && f.geometry?.type === 'LineString') {
-    holeLines.push({ path: f.geometry.coordinates.map(latLon), tags: p });
+    // Skip a hole drawn as a closed shape (its outline): it has no tee-to-green line, and its
+    // start is its end, so the tee would land on the green. Another line for the hole may exist.
+    const path = f.geometry.coordinates.map(latLon);
+    if (path.length < 2 || meters(path[0], path[path.length - 1]) < 2) continue;
+    holeLines.push({ path, tags: p });
   } else if (p.golf === 'green') {
     const [ring] = outerRings(f.geometry);
     if (ring) greens.push({ outline: ring, center: centroid(ring) });
