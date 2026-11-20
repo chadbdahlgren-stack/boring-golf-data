@@ -49,10 +49,16 @@ jobs:
         # A stalled download (under 300 KB/s for 3 minutes) is dropped and picked up where it left off
         # (-C -) instead of starting over; the file is about 11 GB, so a slow day takes a while.
         timeout-minutes: 150
+        # Each stopped try is noted on the run's summary page (curl's exit code and bytes so far).
         run: |
-          for try in 1 2 3 4 5 6; do
-            curl -fL -C - --speed-limit 300000 --speed-time 180 -o us.osm.pbf https://download.geofabrik.de/north-america/us-latest.osm.pbf && exit 0
-            echo "Download try $try stopped; resuming in 30 s"; sleep 30
+          url=$(curl -fsSIL -o /dev/null -w '%{url_effective}' https://download.geofabrik.de/north-america/us-latest.osm.pbf)
+          echo "Downloading $url"
+          for try in 1 2 3 4 5 6 7 8; do
+            code=0
+            curl -fsSL -C - --speed-limit 300000 --speed-time 180 -o us.osm.pbf "$url" || code=$?
+            [ "$code" = 0 ] && exit 0
+            echo "::warning::Download try $try stopped: curl exit $code, $(stat -c%s us.osm.pbf 2>/dev/null || echo 0) bytes so far"
+            sleep 60
           done
           exit 1
 
