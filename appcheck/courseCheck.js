@@ -101,17 +101,15 @@ function checkHole(h) {
 }
 /**
  * Checks a course's mapped holes. Courses with no maps at all aren't checked: they work as a
- * scorecard and already say their map isn't available. A mapped course must have every hole
- * of its 9 or 18 mapped, no two holes the same, and every hole must pass checkHole.
+ * scorecard and already say their map isn't available. On a mapped course no two holes may be
+ * the same and every mapped hole must pass checkHole; holes without a map are played without one.
  */
 function checkCourse(holes) {
     const mapped = holes.filter((h) => h.geo?.green);
     if (!mapped.length)
         return { ok: true, problems: [] };
+    // Holes with no map don't block the course: they're scored without one, as before.
     const problems = [];
-    const missing = holes.filter((h) => !h.geo?.green).map((h) => h.number);
-    if (missing.length)
-        problems.push(`No map for hole${missing.length > 1 ? 's' : ''} ${missing.join(', ')}`);
     for (let i = 0; i < mapped.length; i++) {
         for (let j = i + 1; j < mapped.length; j++) {
             // A 9-hole course played twice: hole 17 is hole 8 again, from about the same tee.

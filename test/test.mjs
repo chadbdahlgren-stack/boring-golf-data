@@ -41,14 +41,14 @@ const no7 = gaps.list.find((c) => c.key === 'w286194275');
 assert.ok(no7 && no7.holes > 0 && no7.missing.length > 0, 'a partly mapped course lists its missing holes');
 assert.ok(fs.readFileSync(path.join(out, 'maps-missing.csv'), 'utf8').startsWith('State,Course,'));
 // The course check: No. 4 passes (its missing pars filled in), partly mapped courses are
-// published as not available, and the report lists both.
+// published with the holes they have, and the report adds up.
 const check = JSON.parse(fs.readFileSync(path.join(out, 'course-check.json'), 'utf8'));
 assert.equal(check.checked, check.passed + check.fixed + check.unavailable);
 const no4Fixes = check.fixedCourses.find((c) => c.key === 'w845405482');
 assert.ok(no4Fixes?.fixes.some((f) => /hole 6: no par → par 3/.test(f)), 'No. 4 hole 6 gets par 3 from its length');
 assert.ok(!no4Fixes.fixes.some((f) => /turned around/.test(f)), 'no No. 4 hole is turned around');
 const no7File = JSON.parse(fs.readFileSync(path.join(out, 'c', 'w286194275.json'), 'utf8'));
-assert.equal(no7File.unavailable, true, 'a partly mapped course is not available');
-assert.match(no7File.problems[0], /No map for holes 8, 15/);
+assert.ok(!no7File.unavailable && no7File.holes.length > 0, 'a partly mapped course is published with its mapped holes');
+assert.ok(!no7File.holes.some((h) => h.n === 8 || h.n === 15), 'its missing holes stay missing');
 assert.ok(fs.readFileSync(path.join(out, 'course-check.csv'), 'utf8').startsWith('Result,Course,What,OpenStreetMap'));
 console.log('course-data checks passed');
