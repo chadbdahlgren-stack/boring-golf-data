@@ -7,6 +7,7 @@ exports.distanceYards = distanceYards;
 exports.formatDistance = formatDistance;
 exports.centroid = centroid;
 exports.greenDistances = greenDistances;
+exports.greenOnOutline = greenOnOutline;
 exports.insideRing = insideRing;
 exports.onGreen = onGreen;
 exports.clampToGreen = clampToGreen;
@@ -70,6 +71,27 @@ function greenDistances(from, center, outline) {
             max = d;
     }
     return { front: min, center: c, back: max };
+}
+/**
+ * A green's middle that sits off its own outline (a horseshoe or crescent green, or a double
+ * green shared by two holes) moves onto the green: the hole line's end if that's on it, else a
+ * spot just inside the outline toward the old middle. With no such spot the outline is dropped.
+ */
+function greenOnOutline(geo) {
+    const { green, greenOutline: ring } = geo;
+    if (!green || !ring || ring.length < 3 || insideRing(green, ring))
+        return geo;
+    const end = geo.path?.[geo.path.length - 1];
+    if (end && insideRing(end, ring))
+        return { ...geo, green: end };
+    for (const f of [0.25, 0.1, 0.5]) {
+        for (const p of ring) {
+            const q = { latitude: p.latitude + (green.latitude - p.latitude) * f, longitude: p.longitude + (green.longitude - p.longitude) * f };
+            if (insideRing(q, ring))
+                return { ...geo, green: q };
+        }
+    }
+    return { ...geo, greenOutline: undefined };
 }
 function insideRing(p, ring) {
     let inside = false;

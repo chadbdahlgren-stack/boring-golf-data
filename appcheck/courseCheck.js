@@ -19,8 +19,10 @@ const pattern_1 = require("./pattern");
 const strokesGained_1 = require("./strokesGained");
 exports.COURSE_NOT_AVAILABLE = 'Sorry, this course is not yet available.';
 /** Shortest and longest believable holes, tee to green along the hole's line. */
-const MIN_HOLE_YARDS = 40;
+const MIN_HOLE_YARDS = 25; // chip-and-putt courses have 30-yard holes
 const MAX_HOLE_YARDS = 800;
+/** Farthest the first putt's spot can be from the green's middle (a big green, a long putt). */
+const GREEN_AT_MAX_YARDS = 25;
 const finite = (p) => !!p && Number.isFinite(p.latitude) && Number.isFinite(p.longitude);
 /** What's wrong with one mapped hole, if anything. */
 function checkHole(h) {
@@ -74,8 +76,11 @@ function checkHole(h) {
             problems.push(`${what}: a ball went away from the green`);
             continue;
         }
-        if (!green(placed.greenAt)) {
-            problems.push(`${what}: the ball on the green isn't on it`);
+        // The first putt starts near the green. (Not "on its outline": the pin here is the green's
+        // middle, which on a lopsided green sits a couple of yards from an edge, so a 20 ft putt from
+        // it can start on the fringe. In a real round the pin and putt length are yours.)
+        if ((0, geo_1.distanceYards)(placed.greenAt, g.green) > GREEN_AT_MAX_YARDS) {
+            problems.push(`${what}: the ball on the green isn't near it`);
             continue;
         }
         const hole = {
@@ -109,6 +114,9 @@ function checkCourse(holes) {
         problems.push(`No map for hole${missing.length > 1 ? 's' : ''} ${missing.join(', ')}`);
     for (let i = 0; i < mapped.length; i++) {
         for (let j = i + 1; j < mapped.length; j++) {
+            // A 9-hole course played twice: hole 17 is hole 8 again, from about the same tee.
+            if (Math.abs(mapped[i].number - mapped[j].number) === 9)
+                continue;
             const a = mapped[i].geo;
             const b = mapped[j].geo;
             if (a.tee && b.tee && (0, geo_1.distanceYards)(a.tee, b.tee) < 10 && (0, geo_1.distanceYards)(a.green, b.green) < 10) {
